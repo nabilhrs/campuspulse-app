@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "380453135946",
+    "project_id": "campuspulse-bfd09",
+    "storage_bucket": "campuspulse-bfd09.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:380453135946:android:c2ba47919d87bc7f9ba8b3",
+        "android_client_info": {
+          "package_name": "com.example.campuspulse"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDBjjl6EAyTBDtCBeeZxppJhhmCGHEVyt8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
