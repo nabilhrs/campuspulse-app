@@ -46,3 +46,14 @@ app.*.map.json
 
 # Secret Environment Variables
 .env
+
+# Native secrets (Maps API key is injected from here at build time)
+local.properties
+**/local.properties
+
+# Local AI tooling artefacts. "/~/" is a literal directory named "~" created by a
+# mistyped home-directory path; "/skills/" holds machine-local symlinks.
+/~/
+/skills/
+.gemini/
+.antigravity/
