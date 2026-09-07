@@ -14,21 +14,23 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
   bool isEmailVerified = false;
   Timer? timer;
   bool canResendEmail = false;
-  bool verificationDetected = false; // New state to control UI
+  bool verificationDetected = false; 
 
   @override
   void initState() {
     super.initState();
     
-    // Check if already verified
     isEmailVerified = FirebaseAuth.instance.currentUser?.emailVerified ?? false;
 
     if (!isEmailVerified) {
-      // Periodically check if the user (or their email server) clicked the link
+      // Keep checking every 3 seconds to see if the user clicked the link
       timer = Timer.periodic(
         const Duration(seconds: 3),
         (_) => checkEmailVerified(),
       );
+      
+      // Automatically send the first verification email upon page load
+      sendVerificationEmail();
     }
   }
 
@@ -41,13 +43,11 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
   Future<void> checkEmailVerified() async {
     // Reload user to get latest status from Firebase
     await FirebaseAuth.instance.currentUser?.reload();
-    
     final verified = FirebaseAuth.instance.currentUser?.emailVerified ?? false;
 
     if (verified) {
       timer?.cancel();
       
-      // Update Firestore status to 'active'
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         await FirebaseFirestore.instance.collection("Students").doc(user.uid).update({
@@ -55,7 +55,6 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
         });
       }
 
-      // Update state to show the "Continue" button instead of auto-redirecting
       if (mounted) {
         setState(() {
           isEmailVerified = true;
@@ -69,45 +68,67 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       await user?.sendEmailVerification();
-      setState(() => canResendEmail = false);
-      await Future.delayed(const Duration(seconds: 5));
-      setState(() => canResendEmail = true);
+      
+      setState(() {
+        canResendEmail = false;
+      });
+      
+      showMessage("Verification email sent! Please check your inbox.");
+      
+      // Prevent spamming the resend button
+      await Future.delayed(const Duration(seconds: 30));
+      if (mounted) setState(() => canResendEmail = true);
+      
     } catch (e) {
-      showMessage(e.toString());
+      showMessage("Error: ${e.toString()}");
     }
   }
   
   void showMessage(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg, style: const TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: const Color(0xFF104C97),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        margin: const EdgeInsets.all(20),
+      )
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    // If verification is detected, show the "Success" UI
+    // --- 1. SUCCESS UI ---
     if (verificationDetected) {
        return Scaffold(
+         backgroundColor: Colors.white,
          body: Padding(
            padding: const EdgeInsets.all(24.0),
            child: Center(
              child: Column(
                mainAxisAlignment: MainAxisAlignment.center,
                children: [
-                 const Icon(Icons.check_circle_outline, size: 100, color: Colors.green),
-                 const SizedBox(height: 24),
+                 Container(
+                   padding: const EdgeInsets.all(24),
+                   decoration: BoxDecoration(color: Colors.green.shade50, shape: BoxShape.circle),
+                   child: const Icon(Icons.verified_user_rounded, size: 80, color: Colors.green),
+                 ),
+                 const SizedBox(height: 32),
                  const Text(
-                   "Verified Successfully!",
-                   style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF104C97)),
+                   "Identity Verified!",
+                   style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Color(0xFF104C97), letterSpacing: -0.5),
                  ),
                  const SizedBox(height: 12),
-                 const Text(
-                   "Your email has been confirmed. You may now access the app.",
+                 Text(
+                   "Your UniKL student email has been successfully authenticated.",
                    textAlign: TextAlign.center,
-                   style: TextStyle(color: Colors.grey, fontSize: 16),
+                   style: TextStyle(color: Colors.grey.shade600, fontSize: 16, height: 1.4),
                  ),
-                 const SizedBox(height: 40),
+                 const SizedBox(height: 48),
                  SizedBox(
                    width: double.infinity,
-                   height: 50,
+                   height: 60,
                    child: ElevatedButton(
                      onPressed: () {
                        Navigator.of(context).pushReplacementNamed('/home');
@@ -115,8 +136,11 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
                      style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF104C97),
                         foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                        elevation: 5,
+                        shadowColor: const Color(0xFF104C97).withOpacity(0.4),
                      ),
-                     child: const Text("Continue to CampusPulse"),
+                     child: const Text("Access CampusPulse", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, letterSpacing: 0.5)),
                    ),
                  ),
                ],
@@ -126,62 +150,79 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
        );
     }
 
-    // Default "Waiting" UI
+    // --- 2. WAITING FOR MANUAL VERIFICATION UI ---
     return Scaffold(
-      appBar: AppBar(title: const Text("Verify Email")),
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Color(0xFF104C97)),
+      ),
       body: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 20),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.mark_email_unread, size: 80, color: Color(0xFF104C97)),
-            const SizedBox(height: 20),
-            const Text(
-              "Verification Email Sent",
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(color: Colors.orange.shade50, shape: BoxShape.circle),
+              child: const Icon(Icons.mark_email_unread_rounded, size: 60, color: Colors.orange),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 32),
+            const Text(
+              "Check Your Email",
+              style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Color(0xFF104C97), letterSpacing: -0.5),
+            ),
+            const SizedBox(height: 12),
             Text(
-              "We have sent a verification link to:\n${FirebaseAuth.instance.currentUser?.email}",
+              "We've sent a verification link to:\n${FirebaseAuth.instance.currentUser?.email}",
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 16),
+              style: const TextStyle(color: Colors.black87, fontSize: 15, height: 1.5, fontWeight: FontWeight.w600),
             ),
-            const SizedBox(height: 20),
-            const Text(
-              "Please check your Outlook/Inbox and click the link to verify your account.",
+            const SizedBox(height: 16),
+            Text(
+              "Please open your Outlook inbox and click the link to verify your account. This page will automatically update once verified.",
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey),
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 14, height: 1.5),
             ),
-            const SizedBox(height: 20),
-            const CircularProgressIndicator(),
-            const SizedBox(height: 10),
-            const Text("Waiting for verification..."),
             const SizedBox(height: 40),
             
-            ElevatedButton.icon(
-              onPressed: canResendEmail ? sendVerificationEmail : null,
-              icon: const Icon(Icons.email),
-              label: const Text("Resend Email"),
-            ),
+            const CircularProgressIndicator(color: Color(0xFF104C97)),
+            const SizedBox(height: 16),
+            const Text("Waiting for verification...", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w600)),
             
-            // Added Spam/Junk hint text here
-            const Padding(
-              padding: EdgeInsets.only(top: 8.0),
-              child: Text(
-                "Check your Junk/Spam folder if you don't see the email.",
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-                textAlign: TextAlign.center,
+            const SizedBox(height: 40),
+            
+            SizedBox(
+              width: double.infinity,
+              height: 60,
+              child: ElevatedButton.icon(
+                onPressed: canResendEmail ? sendVerificationEmail : null,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text("Resend Email", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF104C97),
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: Colors.grey.shade300,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                ),
               ),
             ),
+            const SizedBox(height: 16),
+            Text(
+              "Check your Junk/Spam folder if you don't see the email.",
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade500, fontWeight: FontWeight.w500),
+              textAlign: TextAlign.center,
+            ),
 
-            const SizedBox(height: 10),
+            const SizedBox(height: 40),
             
             TextButton(
               onPressed: () {
                 FirebaseAuth.instance.signOut();
                 Navigator.pushReplacementNamed(context, '/login');
               }, 
-              child: const Text("Cancel"),
+              child: const Text("Cancel & Back to Login", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 16)),
             )
           ],
         ),
