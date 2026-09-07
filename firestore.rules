@@ -1,0 +1,101 @@
+rules_version = '2';
+
+// CampusPulse — Firestore security rules
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// STATUS: DRAFT — NOT YET DEPLOYED, AND NOT WIRED INTO firebase.json.
+//
+// These rules were reconstructed from the access patterns in the Flutter client.
+// They have NOT been reconciled with the rules currently live in the Firebase
+// console, and they do NOT account for whatever the PHP admin portal needs.
+//
+// Before deploying:
+//   1. Open Firebase Console → Firestore → Rules and compare against what is live.
+//   2. Confirm with the web portal owner which collections it writes as an end user
+//      (anything going through the Admin SDK bypasses these rules entirely and does
+//      not need to be listed here).
+//   3. Test in the Rules Playground, then add a "firestore" block to firebase.json.
+//
+// Deploying this file blind could either lock the app out or leave data exposed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    // A student's own profile. The wallet balance is deliberately NOT writable
+    // from the client beyond the top-up flow; see the note below.
+    match /Students/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId);
+      // TODO: `balance` is currently client-writable, which means a student could
+      // credit themselves arbitrarily. Acceptable for an FYP demo with no real
+      // payment gateway, but it should move to a Cloud Function before any real use.
+    }
+
+    // Bookings belong to the student who created them. Status transitions beyond
+    // cancel/expire are performed by the admin portal via the Admin SDK.
+    match /Bookings/{bookingId} {
+      allow read:   if signedIn() && resource.data.user_id == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.user_id == request.auth.uid;
+      allow update: if signedIn() && resource.data.user_id == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // Wallet ledger — append-only from the client, never edited or removed.
+    match /Transactions/{txnId} {
+      allow read:   if signedIn() && resource.data.user_id == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.user_id == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Driver ratings — a student may submit, but never revise or read others'.
+    match /Ratings/{ratingId} {
+      allow read:   if signedIn() && resource.data.user_id == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.user_id == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Written exclusively by Cloud Functions. The client only marks them read.
+    match /Notifications/{notifId} {
+      allow read:   if signedIn() && resource.data.user_id == request.auth.uid;
+      allow update: if signedIn() && resource.data.user_id == request.auth.uid;
+      allow create, delete: if false;
+    }
+
+    match /Timetable/{entryId} {
+      allow read, write: if signedIn() && resource.data.user_id == request.auth.uid;
+    }
+
+    // Reference data. Read-only to students; maintained by the admin portal.
+    match /Zones/{doc}       { allow read: if signedIn(); allow write: if false; }
+    match /Stops/{doc}       { allow read: if signedIn(); allow write: if false; }
+    match /Routes/{doc}      { allow read: if signedIn(); allow write: if false; }
+    match /Shuttles/{doc}    { allow read: if signedIn(); allow write: if false; }
+    match /Staffs/{doc}      { allow read: if signedIn(); allow write: if false; }
+    match /Announcements/{d} { allow read: if signedIn(); allow write: if false; }
+
+    // Readable by any signed-in student, but the client must be able to increment
+    // `booked_count` when a seat is taken.
+    // TODO: this currently permits writing any field on a schedule. Narrow it to
+    // booked_count only, or move seat reservation into a Cloud Function.
+    match /Schedules/{scheduleId} {
+      allow read:   if signedIn();
+      allow update: if signedIn();
+      allow create, delete: if false;
+    }
+
+    // Deny anything not explicitly matched above.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
