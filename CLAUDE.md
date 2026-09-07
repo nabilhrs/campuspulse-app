@@ -30,15 +30,17 @@ CampusPulse is a hybrid transit platform for Universiti Kuala Lumpur (UniKL) tha
 combines fixed-schedule shuttles with on-demand rides, so students stop guessing when
 a shuttle will arrive.
 
-It is built as **two separate repositories sharing one Firebase project**:
+It is built as **three subsystems across two repositories, sharing one Firebase
+project**:
 
-| Repository | Stack | Audience | Responsibility |
+| Subsystem | Repository | Stack | Responsibility |
 |---|---|---|---|
-| **This repo** | Flutter / Dart | Students | Booking, wallet, live tracking, QR boarding pass, ratings |
-| Partner's repo | PHP | Admins and drivers | Fleet, schedules, dispatch, QR scanning, announcements |
+| **Student app** | **This repo** | Flutter / Dart | Booking, Campus Credits wallet, live tracking, QR boarding pass, ratings |
+| Admin console | [campuspulse-web](https://github.com/alinaalias/campuspulse-web) | PHP 8.2 | Fleet, routes, schedules, dispatch, announcements, Gemini-powered analytics |
+| Driver PWA | [campuspulse-web](https://github.com/alinaalias/campuspulse-web) | PHP + service workers | Trip management, GPS telemetry, QR scanning |
 
 **Do not build driver or admin UI in this repo.** If a task calls for it, say so and
-stop — that work belongs to the web portal.
+stop — that work belongs to the web repository.
 
 ### Who writes booking status
 
@@ -50,10 +52,10 @@ mostly a *reader* of booking state. It only ever writes:
 - `is_rated` (after the rating screen)
 
 Every other transition — `confirmed`, `arriving`, `arrived`, `onboard`, `completed`,
-`admin_review` — is written by the **PHP portal** and observed here through
-`StreamBuilder`. If a status changes and no Dart code wrote it, that is expected
-behaviour, not a bug. The QR boarding pass is the handoff point: the app renders
-`{"bid": <bookingId>, "name": <studentName>}`, the driver's portal scans it and
+`admin_review` — is written by the **driver PWA or admin console** and observed here
+through `StreamBuilder`. If a status changes and no Dart code wrote it, that is
+expected behaviour, not a bug. The QR boarding pass is the handoff point: the app
+renders `{"bid": <bookingId>, "name": <studentName>}`, the driver's PWA scans it and
 advances the booking to `onboard`.
 
 ---
@@ -115,8 +117,15 @@ Design language is modern and card-based, with `BorderRadius.circular(12–28)`.
 
 ## 5. Firestore schema
 
-Authoritative, derived from the code. Field names are exact — do not invent or
-guess variants.
+Derived from this repository's code, and authoritative for the Flutter app. Field
+names are exact — do not invent or guess variants.
+
+Scope caveat: the wider system writes fields this app never touches, so their absence
+here is not evidence they do not exist. `Bookings.ticket_status`, `check_in_time` and
+`check_out_time`; `Schedules.onboard_count` and `peak`; `Routes.service_type`;
+`Staffs.duty_status` and `current_trip_id`; and the whole `DRIVER_APPLICATIONS`
+collection are all owned by the web subsystems. The project report holds the full
+cross-system data dictionary.
 
 **`Students`** (doc id = Firebase Auth `uid`)
 `student_id`, `full_name`, `username`, `student_email` (must be `@s.unikl.edu.my`),
@@ -147,7 +156,8 @@ stop_id → time), `capacity` (default 13), `booked_count`, `shuttle_id`, `drive
 `start_stop_id`, `end_stop_id`, `status`
 
 **`Shuttles`** — `is_online`, `job_status`, `current_lat`, `current_lng`
-(live vehicle position streams from **here**, not from `Schedules`)
+(this app streams live vehicle position from **here**; the driver PWA also mirrors
+coordinates onto `Schedules`, but no Dart code reads them from there)
 
 **`Staffs`** — `name` / `full_name`, `role` (`driver` | `admin`),
 `assigned_shuttle_id`, `profile_pic`
@@ -168,10 +178,17 @@ stop_id → time), `capacity` (default 13), `booked_count`, `shuttle_id`, `drive
 
 ## 6. Business logic worth knowing
 
-**Fares.** Flat **RM 2.00** per ride for both booking types, deducted in
+**Fares.** The wallet currency is **Campus Credits**, a closed-loop balance denominated
+in RM — use that name in user-facing strings. Flat **RM 2.00** per ride for both
+booking types (`_baseFare` 2.00 + `_serviceFee` 0.00), deducted in
 `lib/modules/wallet/checkout_page.dart` inside a single transaction that also writes
 the `Bookings` doc and a `Transactions` debit. There is no real payment gateway —
 top-ups credit the balance directly. Adding one is out of scope for the FYP.
+
+**Cancellation.** Early cancellation from My Bookings refunds the full fare. Cancelling
+within 15 minutes of departure, or once the driver is en route, applies a **50% penalty**
+and refunds RM 1.00 (`lib/modules/tracking/tracking_page.dart`). Both paths write a
+`Transactions` credit whose `description` records whether a penalty applied.
 
 **Zone auto-detection** (`lib/data/services/location_service.dart`). Finds the nearest
 `Stops` doc with `status == 'active'` within 3 km of the device and adopts its

@@ -2,9 +2,9 @@
 
 <img src="assets/images/campuspulse_logo.png" alt="CampusPulse" height="90">
 
-**Smart shuttle booking and live tracking for UniKL students.**
+**A hybrid shuttle van booking system for UniKL students.**
 
-Final Year Project · Universiti Kuala Lumpur
+Final Year Project · Group 57 · Universiti Kuala Lumpur, Malaysian Institute of Technology
 
 [![Flutter](https://img.shields.io/badge/Flutter-3.35-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
 [![Dart](https://img.shields.io/badge/Dart-3.9-0175C2?logo=dart&logoColor=white)](https://dart.dev)
@@ -19,17 +19,18 @@ Final Year Project · Universiti Kuala Lumpur
 
 ## The problem
 
-UniKL's campus shuttle ran on a printed timetable and word of mouth. Students had no
-way to know whether a shuttle was running late, already full, or coming at all — so
-they queued and hoped. We called this *blind waiting*, and it is the thing this project
-set out to remove.
+Students living in UniKL's hostels — Jalan Pantai Endah, Jalan Tandok and Residensi
+RAH — and those commuting from Wangsa Maju, Sentul and Kampung Baru had no dedicated,
+predictable way to get to campus. The existing shuttle ran on a printed timetable and
+word of mouth, so students could not tell whether a van was late, already full, or
+coming at all. They queued and hoped.
 
-CampusPulse replaces it with two booking modes backed by live vehicle tracking:
+CampusPulse replaces that guesswork with two booking modes backed by live tracking:
 
-- **Peak Hour Shuttle** — reserve a seat on a fixed departure, with the seat count
-  enforced transactionally so a full shuttle cannot be oversold.
-- **On-Demand Ride** — request a shuttle outside scheduled hours; the request is
-  broadcast to nearby drivers and refunded automatically if nobody accepts.
+- **Peak Hour Shuttle** — reserve a seat on a fixed departure, with capacity enforced
+  transactionally so a full van cannot be oversold.
+- **On-Demand Ride** — request a van outside scheduled hours; the request is broadcast
+  to nearby drivers and refunded automatically if nobody accepts.
 
 ---
 
@@ -37,11 +38,12 @@ CampusPulse replaces it with two booking modes backed by live vehicle tracking:
 
 | | |
 |---|---|
-| **Zone-aware booking** | Detects the student's campus zone from GPS by finding the nearest active stop within 3 km, and falls back to manual selection. |
-| **Live tracking** | Google Maps view of the assigned shuttle with a road-following polyline drawn from the Google Routes API, not a straight line. |
-| **QR boarding pass** | The app renders a QR ticket the driver scans to mark the student on board — the handoff point between the mobile app and the admin portal. |
-| **Prepaid wallet** | Top-up, flat RM 2.00 fares, and an append-only transaction ledger. Fare deduction and booking creation happen in a single Firestore transaction. |
-| **Smart Trip Planner** | Reads the student's saved class timetable and recommends the shuttle that gets them to class on time, accounting for peak hours and live traffic. |
+| **Zone-aware booking** | Detects the student's zone from GPS by finding the nearest active stop within 3 km, and falls back to manual selection. |
+| **Live tracking** | Google Maps view of the assigned van with a road-following polyline from the Google Routes API, not a straight line between stops. |
+| **QR boarding pass** | The app renders a QR ticket the driver scans to mark the student on board — the handoff point between this app and the driver PWA. |
+| **Campus Credits wallet** | Closed-loop prepaid balance with top-up, a flat RM 2.00 fare, and an append-only transaction ledger. Fare deduction and booking creation run in one Firestore transaction. |
+| **Cancellation policy** | Full refund on early cancellation; cancelling within 15 minutes of departure, or once the driver is en route, incurs a 50% penalty and refunds RM 1.00. |
+| **Smart Trip Planner** | Reads the student's saved class timetable and recommends the departure that gets them to class on time, accounting for peak hours and live traffic. |
 | **Push notifications** | Driver arriving, trip started, trip completed, shuttle full, request timed out, and a reminder 30 minutes before a booked departure. |
 | **Driver ratings** | Post-trip star rating with feedback tags, written once and never editable. |
 | **In-app guides** | Illustrated user guide and terms/policies rendered from bundled HTML in a WebView. |
@@ -50,33 +52,37 @@ CampusPulse replaces it with two booking modes backed by live vehicle tracking:
 
 ## Architecture
 
-CampusPulse is two applications sharing one Firebase project. This repository is the
-**student-facing mobile app**; a separate repository holds the **PHP admin and driver
-portal** built by my project partner.
+CampusPulse is three applications sharing one Firebase project. This repository holds
+the **student mobile app**. The **admin web console** and the **driver Progressive Web
+App** live in [campuspulse-web](https://github.com/alinaalias/campuspulse-web),
+built in PHP by my project partner.
 
 ```mermaid
 graph TB
     subgraph Mobile["📱 This repo — Flutter"]
-        A[Student App<br/>booking · wallet · tracking · QR]
+        A[Student App<br/>booking · wallet · tracking · QR pass]
     end
-    subgraph Web["💻 Partner's repo — PHP"]
-        B[Admin & Driver Portal<br/>fleet · schedules · dispatch · QR scanner]
+    subgraph Web["💻 campuspulse-web — PHP"]
+        B[Admin Console<br/>fleet · routes · dispatch · analytics]
+        C[Driver PWA<br/>trips · GPS telemetry · QR scanner]
     end
     subgraph FB["🔥 Firebase — campuspulse-bfd09"]
-        C[(Cloud Firestore)]
-        D[Authentication]
-        E[Cloud Functions]
-        F[Cloud Messaging]
+        D[(Cloud Firestore)]
+        E[Authentication]
+        F[Cloud Functions]
+        G[Cloud Messaging]
     end
-    G[Google Routes API]
+    H[Google Routes API]
 
-    A <--> C
-    A --> D
-    A --> G
-    B <--> C
-    C --> E
-    E --> F
-    F -.push.-> A
+    A <--> D
+    A --> E
+    A --> H
+    B <--> D
+    C <--> D
+    D --> F
+    F --> G
+    G -.push.-> A
+    G -.push.-> C
 ```
 
 ### Who owns booking state
@@ -85,11 +91,11 @@ Worth spelling out, because it explains most of the codebase. The mobile app is
 largely a **reader** of booking state. It writes only the transitions a student
 controls — timing out a `searching` request (with an automatic refund), cancelling,
 and submitting a rating. Everything else (`confirmed`, `arriving`, `arrived`,
-`onboard`, `completed`) is written by the driver through the PHP portal and streamed
-back into the app in real time via Firestore listeners.
+`onboard`, `completed`) is written by the driver PWA or admin console and streamed
+back into the app in real time through Firestore listeners.
 
-The QR boarding pass is where the two systems meet: the app encodes
-`{"bid": <bookingId>, "name": <studentName>}`, the driver's portal scans it, and the
+The QR boarding pass is where the systems meet: the app encodes
+`{"bid": <bookingId>, "name": <studentName>}`, the driver's PWA scans it, and the
 booking advances to `onboard`.
 
 ### Cloud Functions
@@ -112,28 +118,33 @@ that has to happen without the app open:
 `qr_flutter`, `webview_flutter`, `flutter_local_notifications`, `flutter_dotenv`
 
 **Backend** — Firebase Authentication, Cloud Firestore, Cloud Storage, Cloud Messaging,
-Cloud Functions (Node.js 20)
+Cloud Functions (Node.js)
 
 **External APIs** — Google Maps SDK for Android, Google Routes API
 (`directions/v2:computeRoutes`) for polylines and traffic-aware travel times
+
+The web half additionally uses PHP 8.2, service workers for the driver PWA, and the
+Google Gemini API to power an AI analyst over fleet and ratings data.
 
 ---
 
 ## Data model
 
-Firestore collections used by the app. Full field lists are in
-[`CLAUDE.md`](CLAUDE.md#5-firestore-schema).
+Firestore collections **as used by this app**. The wider system also writes fields
+consumed only by the web portal — `ticket_status`, `check_in_time`, `onboard_count`,
+`duty_status` and the `DRIVER_APPLICATIONS` collection among them. Full field lists
+for the mobile view are in [`CLAUDE.md`](CLAUDE.md#5-firestore-schema).
 
 | Collection | Holds |
 |---|---|
-| `Students` | Profile, wallet balance, FCM token, saved class timetable |
+| `Students` | Profile, Campus Credits balance, FCM token, saved class timetable |
 | `Bookings` | Every ride request and its lifecycle status |
-| `Schedules` | Fixed departures with capacity (default 13) and booked seat count |
+| `Schedules` | Fixed departures with seat capacity and booked count |
 | `Routes` · `Stops` · `Zones` | Reference geography — read-only to the app |
 | `Shuttles` · `Staffs` | Live vehicle position and driver details |
-| `Transactions` | Append-only wallet ledger |
+| `Transactions` | Append-only Campus Credits ledger |
 | `Ratings` | Post-trip driver feedback |
-| `Notifications` · `Announcements` | Written by Cloud Functions and the admin portal |
+| `Notifications` · `Announcements` | Written by Cloud Functions and the admin console |
 
 A booking's `status` moves through `pending` → `searching` → `admin_review` →
 `confirmed` → `arriving` → `arrived` → `onboard` → `completed`, with `expired` and
@@ -248,14 +259,26 @@ have never been committed.
 
 ---
 
+## Development and testing
+
+Built with **Rapid Application Development**, using iterative prototyping so the
+system could absorb changing stakeholder requirements across each cycle.
+
+User Acceptance Testing was run with **30 respondents** — 20 UniKL MIIT students,
+7 active shuttle drivers and 3 administrative staff — covering all three subsystems.
+Test cases, questionnaire results and the full methodology are documented in the
+project report.
+
+---
+
 ## Known limitations
 
 Honest scope boundaries for an academic project, not oversights:
 
 - **Android only.** iOS builds compile, but Maps is not configured on that platform
   (no `GMSServices.provideAPIKey`, no location usage strings in `Info.plist`).
-- **No real payment gateway.** Wallet top-ups credit the balance directly, which is
-  sufficient to demonstrate the booking and fare flow but is not production-safe.
+- **Campus Credits are simulated.** Top-ups credit the balance directly. A production
+  deployment would connect the wallet to a payment gateway such as FPX or Billplz.
 - **Release builds use the debug keystore**, and `applicationId` is still
   `com.example.campuspulse`.
 - **No automated tests.** The generated widget test was removed once it no longer
@@ -264,15 +287,24 @@ Honest scope boundaries for an academic project, not oversights:
   SDK churn. Zero errors and zero warnings.
 - **OCR timetable scanning** was prototyped with ML Kit and archived in favour of
   manual entry, which proved more reliable against UniKL's timetable layouts.
+- **Single campus.** Routes and zones are modelled for UniKL MIIT; multi-campus
+  support would need a multi-tenant data model.
+- **Individual bookings only.** Group booking, so friends are placed on the same van,
+  is identified as future work.
 
 ---
 
 ## Team
 
-| Role | Scope |
+Group 57 · Bachelor of Information Technology (Hons.) in Software Engineering ·
+Universiti Kuala Lumpur, Malaysian Institute of Technology · March 2026
+
+| Member | Scope |
 |---|---|
-| **[Nabil](https://github.com/nabilhrs)** | Mobile application — this repository |
-| **Project partner** | Admin and driver web portal *(PHP — repository link to be added)* |
+| **Nabil Haris bin Nasrul Hadi** · [@nabilhrs](https://github.com/nabilhrs) | Student mobile application — this repository |
+| **Noralina binti Alias** · [@alinaalias](https://github.com/alinaalias) | Admin web console and driver PWA — [campuspulse-web](https://github.com/alinaalias/campuspulse-web) |
+
+Supervised by Madam Robiah binti Hamzah. Assessed by Dr. Suriana binti Ismail.
 
 ---
 
