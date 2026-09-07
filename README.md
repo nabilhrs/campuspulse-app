@@ -4,28 +4,58 @@
 
 **A hybrid shuttle van booking system for UniKL students.**
 
-Final Year Project · Group 57 · Universiti Kuala Lumpur, Malaysian Institute of Technology
+Final Year Project · Group 57 · Universiti Kuala Lumpur Malaysian Institute of Information Technology
 
 [![Flutter](https://img.shields.io/badge/Flutter-3.35-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
 [![Dart](https://img.shields.io/badge/Dart-3.9-0175C2?logo=dart&logoColor=white)](https://dart.dev)
 [![Firebase](https://img.shields.io/badge/Firebase-Auth%20·%20Firestore%20·%20FCM-FFCA28?logo=firebase&logoColor=black)](https://firebase.google.com)
 [![Platform](https://img.shields.io/badge/Platform-Android-3DDC84?logo=android&logoColor=white)](#)
 
-<img src="docs/campuspulse_app_mockup.png" alt="CampusPulse app screens" width="760">
+<img src="docs/campuspulse_poster.png" alt="CampusPulse project poster" width="820">
 
 </div>
 
 ---
 
-## The problem
+## Problem statement
 
 Students living in UniKL's hostels — Jalan Pantai Endah, Jalan Tandok and Residensi
-RAH — and those commuting from Wangsa Maju, Sentul and Kampung Baru had no dedicated,
-predictable way to get to campus. The existing shuttle ran on a printed timetable and
-word of mouth, so students could not tell whether a van was late, already full, or
-coming at all. They queued and hoped.
+RAH — and those commuting from Wangsa Maju, Sentul and Kampung Baru face three
+compounding problems.
 
-CampusPulse replaces that guesswork with two booking modes backed by live tracking:
+**1. Absence of dedicated student transportation.** UniKL MIIT has no daily commuting
+service built for the campus community. Without that infrastructure, students fall
+back on private vehicles, and unknown waiting times with no real-time visibility
+discourage them from public transit. The result is recurring high costs for e-hailing
+or dependence on unpredictable public schedules.
+
+**2. Inflexibility of static transport models.** Existing options run on rigid
+schedules with no mechanism to switch between fixed routes at peak times and
+on-demand rides off-peak. Because the transport system operates independently of the
+academic timetable, students cannot align travel with classes and routinely sit
+through long layovers.
+
+**3. Real-time capacity constraints and peak-hour congestion.** Shuttle management is
+a manual routine offering zero visibility into arrival times or passenger loads. This
+produces "blind waiting" — commuters left behind at overcrowded stops during peak
+hours, in a cycle of delays with no assurance of when a viable ride will appear.
+
+## Objectives
+
+1. Develop an integrated shuttle system pairing a mobile booking platform with a web
+   interface, supporting hybrid ride services, secure QR boarding and comprehensive
+   administrative analytics.
+2. Implement real-time shuttle tracking and arrival estimation to improve
+   transparency, reliability and user satisfaction in daily transportation.
+3. Incorporate intelligent ride recommendation that uses students' class schedules,
+   location proximity and traffic data to optimise route efficiency and travel
+   planning.
+4. Design a scalable hybrid booking system with intuitive interfaces that ensures
+   seamless fixed or on-demand service, real-time tracking and secure passenger
+   boarding.
+
+This repository delivers the student-facing half of that system, offering two booking
+modes backed by live tracking:
 
 - **Peak Hour Shuttle** — reserve a seat on a fixed departure, with capacity enforced
   transactionally so a full van cannot be oversold.
@@ -48,6 +78,10 @@ CampusPulse replaces that guesswork with two booking modes backed by live tracki
 | **Driver ratings** | Post-trip star rating with feedback tags, written once and never editable. |
 | **In-app guides** | Illustrated user guide and terms/policies rendered from bundled HTML in a WebView. |
 
+<div align="center">
+  <img src="docs/campuspulse_app_mockup.png" alt="CampusPulse student app screens" width="820">
+</div>
+
 ---
 
 ## Architecture
@@ -57,33 +91,9 @@ the **student mobile app**. The **admin web console** and the **driver Progressi
 App** live in [campuspulse-web](https://github.com/alinaalias/campuspulse-web),
 built in PHP by my project partner.
 
-```mermaid
-graph TB
-    subgraph Mobile["📱 This repo — Flutter"]
-        A[Student App<br/>booking · wallet · tracking · QR pass]
-    end
-    subgraph Web["💻 campuspulse-web — PHP"]
-        B[Admin Console<br/>fleet · routes · dispatch · analytics]
-        C[Driver PWA<br/>trips · GPS telemetry · QR scanner]
-    end
-    subgraph FB["🔥 Firebase — campuspulse-bfd09"]
-        D[(Cloud Firestore)]
-        E[Authentication]
-        F[Cloud Functions]
-        G[Cloud Messaging]
-    end
-    H[Google Routes API]
-
-    A <--> D
-    A --> E
-    A --> H
-    B <--> D
-    C <--> D
-    D --> F
-    F --> G
-    G -.push.-> A
-    G -.push.-> C
-```
+<div align="center">
+  <img src="docs/system_architecture.png" alt="CampusPulse system architecture" width="900">
+</div>
 
 ### Who owns booking state
 
@@ -133,7 +143,7 @@ Google Gemini API to power an AI analyst over fleet and ratings data.
 Firestore collections **as used by this app**. The wider system also writes fields
 consumed only by the web portal — `ticket_status`, `check_in_time`, `onboard_count`,
 `duty_status` and the `DRIVER_APPLICATIONS` collection among them. Full field lists
-for the mobile view are in [`CLAUDE.md`](CLAUDE.md#5-firestore-schema).
+for the mobile view are in [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md).
 
 | Collection | Holds |
 |---|---|
@@ -296,8 +306,9 @@ Honest scope boundaries for an academic project, not oversights:
 
 ## Team
 
-Group 57 · Bachelor of Information Technology (Hons.) in Software Engineering ·
-Universiti Kuala Lumpur, Malaysian Institute of Technology · March 2026
+Group 57 · Bachelor of Software Engineering with Honours ·
+Universiti Kuala Lumpur Malaysian Institute of Information Technology (UniKL MIIT) ·
+March 2026
 
 | Member | Scope |
 |---|---|

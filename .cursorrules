@@ -1,6 +1,0 @@
-See CLAUDE.md in the project root.
-
-It is the single source of truth for project context, coding conventions, secret
-management and the Firestore schema, and it is kept in sync with the code. This file
-previously held its own copy of the schema, which had drifted out of date — keeping
-two copies meant one of them was always wrong.
