@@ -11,6 +11,10 @@ Final Year Project · Group 57 · Universiti Kuala Lumpur Malaysian Institute of
 [![Firebase](https://img.shields.io/badge/Firebase-Auth%20·%20Firestore%20·%20FCM-FFCA28?logo=firebase&logoColor=black)](https://firebase.google.com)
 [![Platform](https://img.shields.io/badge/Platform-Android-3DDC84?logo=android&logoColor=white)](#)
 
+**[🌐 Live site →](https://campuspulse-xg29.onrender.com)** — the public web portal (schedules, announcements, staff and driver access),
+built by [@alinaalias](https://github.com/alinaalias) in [campuspulse-web](https://github.com/alinaalias/campuspulse-web).
+<sub>Hosted on a free tier, so the first visit can take up to a minute to wake up.</sub>
+
 <img src="docs/campuspulse_poster.png" alt="CampusPulse project poster" width="820">
 
 </div>
