@@ -50,6 +50,8 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
       
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
+        // Firestore rules read email_verified from the ID token, which reload() doesn't refresh.
+        await user.getIdToken(true);
         await FirebaseFirestore.instance.collection("Students").doc(user.uid).update({
           "status": "active"
         });
