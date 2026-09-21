@@ -261,9 +261,13 @@ can extract them from a released app. Google documents them as safe to include.
 
 What actually protects the data is:
 
-- **Firestore security rules.** A draft reconstructed from the client's access
-  patterns lives in [`firestore.rules`](firestore.rules). It is *not* wired into
-  `firebase.json` and must be reconciled with the console before any deploy.
+- **Firestore security rules** in [`firestore.rules`](firestore.rules). Verified
+  `@s.unikl.edu.my` students can read and change only their own profile, bookings,
+  ledger and notifications, and can move a booking only through student-driven
+  states. The driver PWA's in-browser code doesn't sign in, so it gets exactly the
+  reads and live-trip fields it uses. Staff records, including password hashes, are
+  never public. The file's header lists the limitations that need code changes
+  rather than rule changes. Deploy with `firebase deploy --only firestore:rules`.
 - **API key restrictions.** The Maps key should be restricted in Google Cloud Console
   to the app's package name and SHA-1 fingerprint, and to only the Maps SDK and Routes
   API.

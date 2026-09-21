@@ -1,101 +1,150 @@
 rules_version = '2';
 
-// CampusPulse — Firestore security rules
+// CampusPulse — Cloud Firestore security rules
 //
-// ─────────────────────────────────────────────────────────────────────────────
-// STATUS: DRAFT — NOT YET DEPLOYED, AND NOT WIRED INTO firebase.json.
+// Three kinds of caller reach Firestore:
+//   1. The Flutter student app, signed in with Firebase Auth.
+//   2. The in-browser code of the driver PWA and admin console, which does not use
+//      Firebase Auth. It is indistinguishable from an anonymous caller, so whatever
+//      it needs is granted to everyone, limited to the exact fields it writes.
+//   3. Cloud Functions, the PHP backend and admin scripts. They use the Admin SDK
+//      and bypass these rules entirely.
 //
-// These rules were reconstructed from the access patterns in the Flutter client.
-// They have NOT been reconciled with the rules currently live in the Firebase
-// console, and they do NOT account for whatever the PHP admin portal needs.
-//
-// Before deploying:
-//   1. Open Firebase Console → Firestore → Rules and compare against what is live.
-//   2. Confirm with the web portal owner which collections it writes as an end user
-//      (anything going through the Admin SDK bypasses these rules entirely and does
-//      not need to be listed here).
-//   3. Test in the Rules Playground, then add a "firestore" block to firebase.json.
-//
-// Deploying this file blind could either lock the app out or leave data exposed.
-// ─────────────────────────────────────────────────────────────────────────────
+// Known limitations that need code changes rather than rule changes:
+//   - Campus Credits balances are written by the client, so a student can credit
+//     their own wallet. Moving top-ups and fares into Cloud Functions would fix it.
+//   - Until the driver PWA signs in, the operational data it reads (shuttle positions,
+//     schedules, open ride requests, ratings) stays publicly readable, and its
+//     live-trip fields stay publicly writable.
+//   - Verified students can read Staffs, which includes password hashes. The app only
+//     needs driver names; a public driver-profile collection would remove the need.
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function signedIn() {
-      return request.auth != null;
+    function signedInAs(uid) {
+      return request.auth != null && request.auth.uid == uid;
     }
 
-    function isOwner(userId) {
-      return signedIn() && request.auth.uid == userId;
+    // Anyone can create a Firebase Auth account with the public API key, but only a
+    // real student can verify an @s.unikl.edu.my address.
+    function isStudent() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.matches('.*@s[.]unikl[.]edu[.]my$');
     }
 
-    // A student's own profile. The wallet balance is deliberately NOT writable
-    // from the client beyond the top-up flow; see the note below.
-    match /Students/{userId} {
-      allow read: if isOwner(userId);
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId);
-      // TODO: `balance` is currently client-writable, which means a student could
-      // credit themselves arbitrarily. Acceptable for an FYP demo with no real
-      // payment gateway, but it should move to a Cloud Function before any real use.
+    function ownsExisting() {
+      return isStudent() && resource.data.user_id == request.auth.uid;
     }
 
-    // Bookings belong to the student who created them. Status transitions beyond
-    // cancel/expire are performed by the admin portal via the Admin SDK.
+    function ownsIncoming() {
+      return isStudent() && request.resource.data.user_id == request.auth.uid;
+    }
+
+    function onlyChanges(fields) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
+    }
+
+    // Written by the driver PWA during a live trip (driver/active_trip.php).
+    function isLiveTripUpdate() {
+      return onlyChanges(['current_stop_index', 'live_eta', 'live_eta_updated_at', 'trip_logs']);
+    }
+
+    // A seat is taken or released one at a time, never beyond capacity.
+    function isSeatChange() {
+      let before = resource.data.get('booked_count', 0);
+      let after = request.resource.data.booked_count;
+      return after is int && (
+        (after == before + 1 && after <= resource.data.get('capacity', 13))
+        || after == before - 1
+        || (after == 0 && before <= 0)
+      );
+    }
+
+    // Not gated on verification: registration, the verification screen and push-token
+    // saving all run before the student has verified their email.
+    match /Students/{uid} {
+      allow read, create, update, delete: if signedInAs(uid);
+    }
+
     match /Bookings/{bookingId} {
-      allow read:   if signedIn() && resource.data.user_id == request.auth.uid;
-      allow create: if signedIn() && request.resource.data.user_id == request.auth.uid;
-      allow update: if signedIn() && resource.data.user_id == request.auth.uid;
-      allow delete: if false;
+      allow read: if ownsExisting();
+      allow create: if ownsIncoming()
+        && request.resource.data.status in ['confirmed', 'searching'];
+      // Students may cancel, expire, resend and rate; every other status change comes
+      // from the driver PWA's PHP backend.
+      allow update: if ownsExisting()
+        && request.resource.data.user_id == resource.data.user_id
+        && onlyChanges(['status', 'is_no_show', 'cancellation_reason', 'cancelled_at',
+                        'is_rated', 'request_time', 'booking_time'])
+        && (request.resource.data.status == resource.data.status
+            || request.resource.data.status in ['searching', 'expired', 'expired_acknowledged',
+                                                'cancelled', 'missed']);
+
+      // Driver PWA: the incoming-request listener, and the booking being driven.
+      // Booking ids are random, so `get` does not let anyone enumerate bookings.
+      allow list: if resource.data.status == 'searching';
+      allow get: if true;
+      allow update: if isLiveTripUpdate();
     }
 
-    // Wallet ledger — append-only from the client, never edited or removed.
+    match /Schedules/{scheduleId} {
+      allow read: if true;
+      allow update: if isStudent() && onlyChanges(['booked_count']) && isSeatChange();
+      allow update: if isLiveTripUpdate();
+    }
+
     match /Transactions/{txnId} {
-      allow read:   if signedIn() && resource.data.user_id == request.auth.uid;
-      allow create: if signedIn() && request.resource.data.user_id == request.auth.uid;
-      allow update, delete: if false;
+      allow read: if ownsExisting();
+      allow create: if ownsIncoming();
     }
 
-    // Driver ratings — a student may submit, but never revise or read others'.
     match /Ratings/{ratingId} {
-      allow read:   if signedIn() && resource.data.user_id == request.auth.uid;
-      allow create: if signedIn() && request.resource.data.user_id == request.auth.uid;
-      allow update, delete: if false;
+      // The driver PWA's trip history reads ratings without signing in.
+      allow read: if true;
+      allow create: if ownsIncoming()
+        && request.resource.data.rating is number
+        && request.resource.data.rating >= 1
+        && request.resource.data.rating <= 5
+        && get(/databases/$(database)/documents/Bookings/$(request.resource.data.booking_id)).data.user_id
+           == request.auth.uid;
     }
 
-    // Written exclusively by Cloud Functions. The client only marks them read.
     match /Notifications/{notifId} {
-      allow read:   if signedIn() && resource.data.user_id == request.auth.uid;
-      allow update: if signedIn() && resource.data.user_id == request.auth.uid;
-      allow create, delete: if false;
+      allow read: if ownsExisting();
+      allow update: if ownsExisting() && onlyChanges(['is_read']);
+      // The driver PWA listens for its driver's notifications without signing in.
+      allow list: if resource.data.user_id is string
+        && resource.data.user_id.matches('^DRV[0-9]+$');
     }
 
     match /Timetable/{entryId} {
-      allow read, write: if signedIn() && resource.data.user_id == request.auth.uid;
+      allow read: if ownsExisting();
     }
 
-    // Reference data. Read-only to students; maintained by the admin portal.
-    match /Zones/{doc}       { allow read: if signedIn(); allow write: if false; }
-    match /Stops/{doc}       { allow read: if signedIn(); allow write: if false; }
-    match /Routes/{doc}      { allow read: if signedIn(); allow write: if false; }
-    match /Shuttles/{doc}    { allow read: if signedIn(); allow write: if false; }
-    match /Staffs/{doc}      { allow read: if signedIn(); allow write: if false; }
-    match /Announcements/{d} { allow read: if signedIn(); allow write: if false; }
-
-    // Readable by any signed-in student, but the client must be able to increment
-    // `booked_count` when a seat is taken.
-    // TODO: this currently permits writing any field on a schedule. Narrow it to
-    // booked_count only, or move seat reservation into a Cloud Function.
-    match /Schedules/{scheduleId} {
-      allow read:   if signedIn();
-      allow update: if signedIn();
-      allow create, delete: if false;
+    // Holds login password hashes, so it is never public.
+    match /Staffs/{staffId} {
+      allow read: if isStudent();
+      // The driver PWA clears the current trip when a ride finishes.
+      allow update: if onlyChanges(['current_trip_id'])
+        && request.resource.data.current_trip_id == '';
     }
 
-    // Deny anything not explicitly matched above.
-    match /{document=**} {
-      allow read, write: if false;
+    match /Shuttles/{shuttleId} {
+      allow read: if true;
+      // Driver PWA: the GPS heartbeat, and releasing the van when a ride finishes.
+      allow update: if onlyChanges(['current_lat', 'current_lng', 'is_online', 'last_updated', 'job_status'])
+        && request.resource.data.get('is_online', false) is bool
+        && (request.resource.data.get('job_status', '') == resource.data.get('job_status', '')
+            || request.resource.data.job_status == 'idle');
     }
+
+    match /Zones/{zoneId}          { allow read: if true; }
+    match /Routes/{routeId}        { allow read: if true; }
+    match /Stops/{stopId}          { allow read: if true; }
+    match /Announcements/{notice}  { allow read: if true; }
+
+    // Anything not matched above (Counters, DRIVER_APPLICATIONS, ...) is server-only.
   }
 }
