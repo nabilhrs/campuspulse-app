@@ -51,6 +51,11 @@ app.*.map.json
 local.properties
 **/local.properties
 
+# Firebase Admin SDK service-account keys grant full project access.
+# Keep them outside the repository entirely; these rules are a safety net.
+service-account*.json
+*firebase-adminsdk*.json
+
 # Local AI tooling artefacts. "/~/" is a literal directory named "~" created by a
 # mistyped home-directory path; "/skills/" holds machine-local symlinks.
 /~/
